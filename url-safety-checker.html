@@ -1,0 +1,412 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>URL Safety Checker</title>
+<style>
+:root{--bg:#edf0f3;--card:#fff;--ink:#16202e;--mute:#5b6676;--line:#d5dbe3;--accent:#0f5f7a;--ok:#2f7d4f;--warn:#b7791f;--bad:#b3261e;--r:10px;--mono:ui-monospace,Consolas,"Courier New",monospace}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.5 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+main{max-width:760px;margin:0 auto;padding:32px 16px 64px}
+h1{font-size:1.75rem;margin:0 0 4px;letter-spacing:-.01em}
+h2{font-size:1.05rem;margin:0 0 10px}
+.lead{color:var(--mute);margin:0 0 22px;max-width:60ch}
+form{display:flex;gap:8px;flex-wrap:wrap}
+input{flex:1 1 280px;font:1rem var(--mono);padding:12px 14px;border:1.5px solid var(--line);border-radius:var(--r);background:#fff;color:var(--ink)}
+button{font:600 1rem system-ui,sans-serif;padding:12px 20px;border:0;border-radius:var(--r);background:var(--accent);color:#fff;cursor:pointer}
+button.ghost{background:transparent;color:var(--accent);border:1.5px solid var(--accent)}
+input:focus-visible,button:focus-visible{outline:3px solid var(--accent);outline-offset:2px}
+.samples{margin:10px 0 0;font-size:.875rem;color:var(--mute)}
+.samples button{padding:2px 8px;font:.8125rem var(--mono);margin:2px 0 2px 6px;background:#fff;color:var(--ink);border:1px solid var(--line)}
+.card{background:var(--card);border:1px solid var(--line);border-radius:var(--r);padding:20px;margin-top:20px}
+.verdict{display:flex;justify-content:space-between;align-items:baseline;gap:12px;flex-wrap:wrap}
+.verdict strong{font-size:1.4rem}
+.verdict span{color:var(--mute);font-variant-numeric:tabular-nums}
+.safe{color:var(--ok)}.warn{color:var(--warn)}.bad{color:var(--bad)}
+.meter{position:relative;height:12px;border-radius:6px;margin:14px 0 6px;background:linear-gradient(90deg,var(--ok) 0 30%,var(--warn) 30% 60%,var(--bad) 60% 100%)}
+.meter i{position:absolute;top:-5px;width:4px;height:22px;background:var(--ink);border-radius:2px;transform:translateX(-2px);transition:left .5s}
+.scale{display:flex;justify-content:space-between;font-size:.75rem;color:var(--mute)}
+.anat{display:flex;flex-wrap:wrap;align-items:flex-end;font:.95rem var(--mono);word-break:break-all;margin-top:6px}
+.seg{display:inline-flex;flex-direction:column;padding:0 1px}
+.seg code{font:inherit;padding:2px 0;border-bottom:3px solid var(--line)}
+.seg small{font:.7rem system-ui,sans-serif;color:var(--mute);margin-top:2px}
+.seg.domain code{border-color:var(--accent);font-weight:700;background:#e3f0f5}
+.seg.userinfo code{border-color:var(--bad)}
+ul.find{list-style:none;margin:0;padding:0}
+ul.find li{display:grid;grid-template-columns:3.2rem 1fr;gap:8px;padding:10px 0;border-top:1px solid var(--line)}
+ul.find li:first-child{border-top:0}
+ul.find b{font-variant-numeric:tabular-nums}
+ul.find .n{font-weight:600}
+.note{color:var(--mute);font-size:.875rem;margin:10px 0 0}
+table{width:100%;border-collapse:collapse;font-size:.85rem;margin-top:12px}
+th,td{text-align:left;padding:6px 8px;border-top:1px solid var(--line);vertical-align:top}
+td:first-child{font-family:var(--mono);word-break:break-all}
+.stats{display:flex;gap:24px;flex-wrap:wrap;margin-top:12px}
+.stats div{font-size:.875rem;color:var(--mute)}.stats b{display:block;font-size:1.5rem;color:var(--ink)}
+dl.kv{display:grid;grid-template-columns:8rem 1fr;gap:6px 12px;margin:0;color:var(--ink)}dl.kv dt{color:var(--mute)}dl.kv dd{margin:0;font:.85rem var(--mono);word-break:break-all}
+.cat{font-size:.75rem;color:var(--mute);border:1px solid var(--line);border-radius:4px;padding:0 6px;margin-left:4px}
+footer{margin-top:28px;font-size:.875rem;color:var(--mute)}
+@media (prefers-reduced-motion:reduce){.meter i{transition:none}}
+</style>
+</head>
+<body>
+<main>
+  <h1>URL safety checker</h1>
+  <p class="lead">Paste a link before you click it. The checker looks at how the address is built, whether it imitates a well known site and if the domain actually exists. Everything runs in your browser.</p>
+
+  <form id="f">
+    <input id="u" type="text" placeholder="e.g. paypa1.com/login/verify" autocomplete="off" spellcheck="false" aria-label="URL to check" autofocus>
+    <button type="submit">Check URL</button>
+  </form>
+  <p class="samples">You Can Try The Following Sample Links:
+    <button type="button" data-u="https://github.com/anthropics">github.com</button>
+    <button type="button" data-u="http://paypa1.com/login/verify">paypa1.com</button>
+    <button type="button" data-u="https://secure-login.paypal.com.account-verify.xyz/update">paypal.com.account-verify.xyz</button>
+  </p>
+
+  <div id="out" aria-live="polite"></div>
+
+  <section class="card">
+    <h2>Self Test</h2>
+    <p class="note" style="margin-top:0">Runs the address checks against a labelled set of phishing style and legitimate URLs then reports how often the verdict is right. The test URLs are synthetic patterns, not live malicious sites.</p>
+    <button class="ghost" id="run" type="button" style="margin-top:10px">Run test set</button>
+    <div id="tests"></div>
+  </section>
+
+  <footer>
+    <p id="feedinfo" style="margin-top:0"></p>
+    <strong>Limitations.</strong> Browsers block SSL certificate and redirect lookups, so those are not checked. Domain age comes from RDAP, which only some registries allow from a browser. Heuristics cannot detect a legitimate site that has been hacked, and attackers can adapt to known rules. A clean result means no red flags were found, not that a site is safe.
+  </footer>
+</main>
+
+<script src="feeds.js"></script>
+<script>
+const TRUSTED = new Set(["google.com","youtube.com","facebook.com","instagram.com","twitter.com","x.com","linkedin.com","amazon.com","apple.com","microsoft.com","netflix.com","paypal.com","github.com","wikipedia.org","reddit.com","whatsapp.com","yahoo.com","ebay.com","dropbox.com","adobe.com","spotify.com","slack.com","outlook.com","gmail.com","stackoverflow.com","binance.com","coinbase.com","safaricom.co.ke","mpesa.co.ke","fedex.com","bbc.co.uk","bbc.com","zoom.us"]);
+const BRANDS = [...new Set([...TRUSTED].map(d => d.split(".")[0]))].filter(b => b.length >= 5);
+const MULTI_TLDS = new Set(["co.uk","co.ke","com.au","co.za","co.in","com.ng","ac.ke","or.ke","go.ke","com.br","co.jp"]);
+const BAD_TLDS = new Set(["zip","xyz","top","tk","ml","ga","cf","gq","click","country","work","rest","support","loan"]);
+const SHORTENERS = new Set(["bit.ly","tinyurl.com","t.co","goo.gl","ow.ly","is.gd","cutt.ly","rb.gy"]);
+const KEYWORDS = ["login","signin","verify","secure","account","update","confirm","banking","wallet","password","billing","support"];
+
+/* Module 1: parsing */
+function parseInput(raw) {
+  raw = raw.trim();
+  if (!raw) return null;
+  try {
+    const hasScheme = /^[a-z][a-z0-9+.-]*:\/\//i.test(raw);
+    const u = new URL(hasScheme ? raw : "https://" + raw);
+    if (!/^https?:$/.test(u.protocol)) return null;
+    if (!u.hostname.includes(".") && !u.hostname.startsWith("[")) return null;
+    return u;
+  } catch { return null; }
+}
+function splitHost(host) {
+  const labels = host.split(".");
+  const n = MULTI_TLDS.has(labels.slice(-2).join(".")) ? 3 : 2;
+  return {
+    registrable: labels.slice(-n).join("."),
+    sub: labels.slice(0, -n),
+    sld: labels[labels.length - n] || labels[0],
+    tld: labels[labels.length - 1]
+  };
+}
+function buildCtx(url) {
+  const host = url.hostname;
+  const isIp = /^\d{1,3}(\.\d{1,3}){3}$/.test(host) || host.startsWith("[");
+  return { url, host, isIp, ...(isIp ? { registrable: host, sub: [], sld: host, tld: "" } : splitHost(host)) };
+}
+
+/* Module 2: lexical checks */
+const R = (name, score = 0, reason = "") => ({ name, score, reason });
+const checks = [];
+
+function checkScheme(c) { return c.url.protocol === "http:" ? R("Connection", 10, "Uses plain HTTP, so traffic is not encrypted.") : R("Connection"); }
+function checkIp(c) { return c.isIp ? R("Host type", 35, "Uses a raw IP address instead of a domain name.") : R("Host type"); }
+function checkUserinfo(c) { return c.url.username ? R("Hidden host", 30, "Text before the @ is only a username. The browser ignores it, but it can make a fake address look real.") : R("Hidden host"); }
+function checkLength(c) {
+  const n = c.url.href.length;
+  return n > 120 ? R("Length", 20, `URL is very long (${n} characters).`) : n > 75 ? R("Length", 10, `URL is unusually long (${n} characters).`) : R("Length");
+}
+function checkSubdomains(c) {
+  const n = c.sub.filter(l => l !== "www").length;
+  return n >= 3 ? R("Subdomains", 15, `Has ${n} subdomain levels. Attackers stack them to bury the real domain.`) : R("Subdomains");
+}
+function checkHyphens(c) {
+  const n = (c.host.replace(/xn--/g, "").match(/-/g) || []).length;
+  return n >= 3 ? R("Hyphens", 10, `Hostname contains ${n} hyphens.`) : R("Hyphens");
+}
+function checkTld(c) { return BAD_TLDS.has(c.tld) ? R("Top-level domain", 15, `".${c.tld}" is frequently used in throwaway scam domains.`) : R("Top-level domain"); }
+function checkPort(c) { return c.url.port ? R("Port", 10, `Uses a non-standard port (${c.url.port}).`) : R("Port"); }
+function checkShortener(c) { return SHORTENERS.has(c.registrable) ? R("Shortener", 20, "Link shortener: the real destination is hidden.") : R("Shortener"); }
+function checkEncoding(c) {
+  const n = (c.url.href.match(/%[0-9a-f]{2}/gi) || []).length;
+  return n > 3 ? R("Encoding", 8, `Contains ${n} percent-encoded characters.`) : R("Encoding");
+}
+function checkDigits(c) {
+  const n = c.isIp ? 0 : (c.sld.match(/\d/g) || []).length;
+  return n >= 4 ? R("Digits", 8, "Domain name contains many digits.") : R("Digits");
+}
+function checkKeywords(c) {
+  const path = (c.url.pathname + c.url.search).toLowerCase();
+  const inHost = KEYWORDS.filter(k => c.host.includes(k));
+  const inPath = KEYWORDS.filter(k => path.includes(k));
+  const score = Math.min(20, inHost.length * 10) + Math.min(10, inPath.length * 5);
+  const found = [...new Set([...inHost, ...inPath])];
+  return score ? R("Sensitive words", score, `Contains words used in credential-theft pages: ${found.join(", ")}.`) : R("Sensitive words");
+}
+// Punycode decoder
+function punyDecode(s) {
+  const base = 36, tMin = 1, tMax = 26, skew = 38, damp = 700;
+  const adapt = (d, np, first) => {
+    d = first ? Math.floor(d / damp) : d >> 1; d += Math.floor(d / np);
+    let k = 0;
+    while (d > (((base - tMin) * tMax) >> 1)) { d = Math.floor(d / (base - tMin)); k += base; }
+    return k + Math.floor(((base - tMin + 1) * d) / (d + skew));
+  };
+  const out = []; let i = 0, n = 128, bias = 72;
+  const b = s.lastIndexOf("-");
+  for (let j = 0; j < b; j++) out.push(s.charCodeAt(j));
+  for (let idx = b > 0 ? b + 1 : 0; idx < s.length;) {
+    const oldi = i;
+    for (let w = 1, k = base; ; k += base) {
+      const ch = s.charCodeAt(idx++);
+      const digit = ch - 48 < 10 ? ch - 22 : ch - 65 < 26 ? ch - 65 : ch - 97 < 26 ? ch - 97 : base;
+      i += digit * w;
+      const t = k <= bias ? tMin : k >= bias + tMax ? tMax : k - bias;
+      if (digit < t) break;
+      w *= base - t;
+    }
+    bias = adapt(i - oldi, out.length + 1, oldi === 0);
+    n += Math.floor(i / (out.length + 1)); i %= out.length + 1;
+    out.splice(i++, 0, n);
+  }
+  return String.fromCodePoint(...out);
+}
+const CONFUSABLES = { "а":"a","е":"e","о":"o","р":"p","с":"c","х":"x","у":"y","і":"i","ѕ":"s","ԁ":"d","ɡ":"g","ο":"o","α":"a","ν":"v","ı":"i" };
+function checkPunycode(c) {
+  const name = "Look-alike characters";
+  const labels = c.host.split(".").filter(l => l.startsWith("xn--"));
+  if (!labels.length) return R(name);
+  const dec = labels.map(l => { try { return punyDecode(l.slice(4)); } catch { return l; } });
+  for (const u of dec) {
+    const skeleton = [...u].map(ch => CONFUSABLES[ch] || ch).join("");
+    const hit = BRANDS.find(b => skeleton === b);
+    if (hit) return R(name, 50, `"${u}" is written with non-Latin letters but looks like "${hit}".`);
+    const scripts = ["Latin", "Cyrillic", "Greek"].filter(sc => new RegExp(`\\p{Script=${sc}}`, "u").test(u));
+    if (scripts.length > 1) return R(name, 40, `"${u}" mixes ${scripts.join(" and ")} letters, a classic homograph trick.`);
+  }
+  return R(name, 30, `Domain uses punycode (decoded: ${dec.join(", ")}). Non-Latin letters can imitate Latin ones.`);
+}
+checks.push(checkScheme, checkIp, checkUserinfo, checkLength, checkSubdomains, checkHyphens, checkTld, checkPort, checkShortener, checkEncoding, checkDigits, checkKeywords, checkPunycode);
+
+/* Module 3: brand and typosquatting checks */
+function editDistance(a, b) {
+  const d = Array.from({ length: a.length + 1 }, (_, i) => [i, ...Array(b.length).fill(0)]);
+  for (let j = 1; j <= b.length; j++) d[0][j] = j;
+  for (let i = 1; i <= a.length; i++)
+    for (let j = 1; j <= b.length; j++)
+      d[i][j] = Math.min(d[i-1][j] + 1, d[i][j-1] + 1, d[i-1][j-1] + (a[i-1] === b[j-1] ? 0 : 1));
+  return d[a.length][b.length];
+}
+const unleet = s => s.replace(/0/g, "o").replace(/[1|]/g, "l").replace(/3/g, "e").replace(/4/g, "a").replace(/5|\$/g, "s").replace(/vv/g, "w").replace(/rn/g, "m");
+
+function checkTrusted(c) {
+  return TRUSTED.has(c.registrable) ? R("Known domain", -20, `${c.registrable} is on the list of popular sites.`) : R("Known domain");
+}
+function checkBrand(c) {
+  const name = "Brand impersonation";
+  if (c.isIp || TRUSTED.has(c.registrable)) return R(name);
+  const nsld = unleet(c.sld);
+  for (const b of BRANDS)
+    if (nsld === b && c.sld !== b) return R(name, 50, `"${c.sld}" imitates "${b}" using swapped characters.`);
+  if (c.sld.length >= 5) {
+    let best = { d: 99, b: "" };
+    for (const b of BRANDS) {
+      const d = editDistance(c.sld, b);
+      if (d > 0 && d < best.d) best = { d, b };
+    }
+    if (best.d === 1) return R(name, 45, `"${c.sld}" is one character away from "${best.b}".`);
+    if (best.d === 2 && c.sld.length >= 7) return R(name, 30, `"${c.sld}" is two characters away from "${best.b}".`);
+  }
+  const hit = BRANDS.find(b => unleet(c.host).includes(b));
+  return hit ? R(name, 35, `Contains "${hit}" but the real domain is ${c.registrable}, not ${hit}.com.`) : R(name);
+}
+checks.push(checkTrusted, checkBrand);
+
+/* Module 4: DNS lookup  */
+async function checkDns(c) {
+  const name = "DNS lookup";
+  if (c.isIp) return R(name);
+  try {
+    const ctrl = new AbortController();
+    const t = setTimeout(() => ctrl.abort(), 4000);
+    const r = await fetch(`https://dns.google/resolve?name=${encodeURIComponent(c.host)}&type=A`, { signal: ctrl.signal });
+    clearTimeout(t);
+    const j = await r.json();
+    if (j.Status === 3) return R(name, 30, "This domain name does not exist in DNS.");
+    if (!j.Answer) return R(name, 10, "Domain has no address record.");
+    return R(name);
+  } catch { return { ...R(name), skipped: true }; }
+}
+
+/* Module 5: threat categories, domain age (RDAP), threat feed snapshot */
+const CATS = {
+  "Connection": "Weak infrastructure", "Top-level domain": "Weak infrastructure", "Port": "Weak infrastructure",
+  "DNS lookup": "Weak infrastructure", "Domain age": "Weak infrastructure",
+  "Host type": "Obfuscation", "Hidden host": "Obfuscation", "Length": "Obfuscation", "Subdomains": "Obfuscation",
+  "Shortener": "Obfuscation", "Encoding": "Obfuscation",
+  "Hyphens": "Impersonation", "Digits": "Impersonation", "Look-alike characters": "Impersonation", "Brand impersonation": "Impersonation",
+  "Sensitive words": "Credential theft", "Known threat feed": "Known threat"
+};
+const FEEDSET = new Set((window.FEED && window.FEED.hosts) || []);
+function checkFeed(c) {
+  const name = "Known threat feed";
+  return FEEDSET.has(c.host) || FEEDSET.has(c.registrable)
+    ? R(name, 70, `Host appears in the ${window.FEED.source} snapshot from ${window.FEED.updated}.`) : R(name);
+}
+const rdapCache = new Map();
+function getRdap(c) {  
+  if (!rdapCache.has(c.registrable)) rdapCache.set(c.registrable, (async () => {
+    const boot = await (await fetch("https://data.iana.org/rdap/dns.json", { signal: AbortSignal.timeout(6000) })).json();
+    const svc = boot.services.find(x => x[0].includes(c.tld));
+    const base = svc && svc[1].find(u => u.startsWith("https"));
+    if (!base) throw new Error("no RDAP server for ." + c.tld);
+    const r = await fetch(base.replace(/\/?$/, "/") + "domain/" + c.registrable, { signal: AbortSignal.timeout(6000) });
+    if (!r.ok) throw new Error("RDAP " + r.status);
+    return r.json();
+  })());
+  return rdapCache.get(c.registrable);
+}
+function rdapInfo(j) {
+  const ev = a => ((j.events || []).find(e => e.eventAction === a) || {}).eventDate;
+  const reg = (j.entities || []).find(e => (e.roles || []).includes("registrar"));
+  const fn = reg && reg.vcardArray && reg.vcardArray[1].find(x => x[0] === "fn");
+  return { registered: ev("registration"), expires: ev("expiration"), registrar: fn ? fn[3] : null, ns: (j.nameservers || []).map(n => n.ldhName.toLowerCase()) };
+}
+async function checkDomainAge(c) {
+  const name = "Domain age";
+  if (c.isIp) return R(name);
+  try {
+    const { registered } = rdapInfo(await getRdap(c));
+    if (!registered) return { ...R(name), skipped: true };
+    const days = Math.floor((Date.now() - new Date(registered)) / 864e5);
+    if (days < 30) return R(name, 30, `Registered only ${days} days ago. Most phishing domains are brand new.`);
+    if (days < 180) return R(name, 15, `Registered ${days} days ago, which is recent.`);
+    return R(name);
+  } catch { return { ...R(name), skipped: true }; }
+}
+async function doh(host, type) {
+  try {
+    const r = await fetch(`https://dns.google/resolve?name=${encodeURIComponent(host)}&type=${type}`, { signal: AbortSignal.timeout(4000) });
+    return ((await r.json()).Answer || []).filter(a => a.type !== 5).map(a => a.data);
+  } catch { return null; }
+}
+async function fillAdvanced(c) {
+  const el = $("adv");
+  if (c.isIp) { el.textContent = "The host is an IP address, so there are no DNS or registration records to show."; return; }
+  const [a, aaaa, ns, mx, rd] = await Promise.all([doh(c.host, 1), doh(c.host, 28), doh(c.registrable, 2), doh(c.registrable, 15), getRdap(c).then(rdapInfo, () => null)]);
+  const row = (k, v) => `<dt>${k}</dt><dd>${v && v.length ? esc([].concat(v).join(", ")) : "Not available"}</dd>`;
+  el.innerHTML = `<dl class="kv">${row("IPv4 address", a)}${row("IPv6 address", aaaa)}${row("Name servers", ns && ns.length ? ns : rd && rd.ns)}${row("Mail servers", mx)}${row("Registrar", rd && rd.registrar)}${row("Registered", rd && rd.registered && rd.registered.slice(0, 10))}${row("Expires", rd && rd.expires && rd.expires.slice(0, 10))}</dl>`;
+}
+
+/* Module 6: scoring */
+function computeVerdict(results) {
+  const total = Math.max(0, Math.min(100, results.reduce((s, r) => s + r.score, 0)));
+  const hits = results.filter(r => r.score > 0);
+  const cats = {};
+  hits.forEach(r => { const k = CATS[r.name] || "Other"; cats[k] = (cats[k] || 0) + r.score; });
+  const top = Object.entries(cats).sort((a, b) => b[1] - a[1])[0];
+  const trusted = results.some(r => r.name === "Known domain" && r.score < 0);
+  const v = total >= 60 ? { cls: "bad", label: "Likely malicious" } : total >= 30 ? { cls: "warn", label: "Suspicious" } : { cls: "safe", label: "No red flags found" };
+  const conf = v.cls === "safe" ? (trusted ? "High" : "Moderate") : hits.length >= 3 ? "High" : hits.length === 2 ? "Medium" : "Low";
+  return { ...v, total, top: top && top[0], conf, signals: hits.length };
+}
+
+/* Module 7: interface */
+const $ = id => document.getElementById(id);
+const esc = s => String(s).replace(/[&<>"']/g, m => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[m]));
+
+function anatomy(c) {
+  const u = c.url, p = [[u.protocol + "//", "Protocol", "scheme"]];
+  if (u.username) p.push([u.username + (u.password ? ":" + u.password : "") + "@", "Ignored by browser", "userinfo"]);
+  const sub = c.isIp ? "" : c.host.slice(0, c.host.length - c.registrable.length);
+  if (sub) p.push([sub, "Subdomain", "sub"]);
+  p.push([c.registrable, c.isIp ? "IP address" : "Real site", "domain"]);
+  if (u.port) p.push([":" + u.port, "Port", "port"]);
+  const rest = u.pathname + u.search + u.hash;
+  if (rest !== "/") p.push([rest, "Path", "path"]);
+  return p.map(([t, l, k]) => `<span class="seg ${k}"><code>${esc(t)}</code><small>${l}</small></span>`).join("");
+}
+
+function render(c, results) {
+  const v = computeVerdict(results);
+  const found = results.filter(r => r.reason).sort((a, b) => b.score - a.score);
+  const skipped = results.filter(r => r.skipped).map(r => r.name);
+  const items = found.length
+    ? found.map(r => `<li><b class="${r.score > 0 ? "bad" : "safe"}">${r.score > 0 ? "+" : "\u2212"}${Math.abs(r.score)}</b><div><span class="n">${esc(r.name)}</span> <span class="cat">${esc(CATS[r.name] || "")}</span><br>${esc(r.reason)}</div></li>`).join("")
+    : `<li><b></b><div>Nothing unusual in the address. That does not guarantee the site is safe.</div></li>`;
+  $("out").innerHTML = `
+    <section class="card">
+      <div class="verdict"><strong class="${v.cls}">${v.label}</strong><span>Risk score ${v.total} / 100</span></div>
+      <div class="meter" role="meter" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${v.total}" aria-label="Risk score"><i style="left:${v.total}%"></i></div>
+      <div class="scale"><span>0</span><span>30</span><span>60</span><span>100</span></div>
+      <p class="note">${v.top && v.cls !== "safe" ? `Main threat type: <b>${v.top}</b>. ` : ""}Confidence: <b>${v.conf}</b>${v.signals && v.cls !== "safe" ? ` (${v.signals} signal${v.signals > 1 ? "s" : ""} agree)` : ""}.</p>
+    </section>
+    <section class="card"><h2>How the address is built</h2><div class="anat">${anatomy(c)}</div></section>
+    <section class="card"><h2>Findings</h2><ul class="find">${items}</ul>
+      ${skipped.length ? `<p class="note">Skipped because the service could not be reached or does not allow browser access: ${skipped.join(", ")}.</p>` : ""}</section>
+    <section class="card"><h2>Technical details</h2><div id="adv" class="note" style="margin:0">Loading\u2026</div></section>`;
+}
+
+async function run(raw) {
+  const url = parseInput(raw);
+  if (!url) {
+    $("out").innerHTML = `<section class="card"><strong class="bad">Not a valid web address</strong><p class="note">Enter a link such as example.com/login or https://example.com.</p></section>`;
+    return;
+  }
+  const c = buildCtx(url);
+  $("out").innerHTML = `<section class="card">Checking\u2026</section>`;
+  render(c, [...checks.map(f => f(c)), checkFeed(c), ...await Promise.all([checkDns(c), checkDomainAge(c)])]);
+  fillAdvanced(c);
+}
+
+$("feedinfo").textContent = window.FEED ? `Threat feed: ${FEED.source}, snapshot from ${FEED.updated} (${FEEDSET.size} hosts). It is not live; run update-feeds.js to refresh it.` : "Threat feed: no snapshot loaded. Run update-feeds.js to download one.";
+$("f").addEventListener("submit", e => { e.preventDefault(); run($("u").value); });
+document.querySelectorAll(".samples button").forEach(b => b.addEventListener("click", () => { $("u").value = b.dataset.u; run(b.dataset.u); }));
+
+/* Module 8: self-test, for offline demonstration */
+const TESTS = [
+  ["http://paypa1.com/login/verify", 1], ["http://192.168.4.7/secure/signin.php", 1],
+  ["https://secure-login.paypal.com.account-verify.xyz/update", 1], ["http://amazon-support.top/confirm-account", 1],
+  ["https://xn--pple-43d.com/id", 1], ["http://bit.ly/3xYzAb", 1], ["https://micr0soft-online.com/signin", 1],
+  ["http://login.microsoftonline.com.verify-user.tk/", 1], ["http://user@evil.example/bank", 1],
+  ["https://faceb00k.com/recover-password", 1], ["https://www.g00gle.com", 1],
+  ["https://www.google.com/search?q=cats", 0], ["https://github.com/anthropics", 0],
+  ["https://en.wikipedia.org/wiki/Computer_security", 0], ["https://www.amazon.com/dp/B08N5WRWNW", 0],
+  ["https://accounts.google.com/signin", 0], ["https://www.paypal.com/signin", 0], ["https://mail.google.com", 0],
+  ["https://www.bbc.co.uk/news", 0], ["https://stackoverflow.com/questions/123", 0], ["https://www.safaricom.co.ke/personal", 0]
+];
+$("run").addEventListener("click", () => {
+  let tp = 0, fn = 0, fp = 0, tn = 0;
+  const rows = TESTS.map(([raw, bad]) => {
+    const c = buildCtx(parseInput(raw));
+    const score = computeVerdict(checks.map(f => f(c))).total;
+    const flagged = score >= 30;
+    if (bad) flagged ? tp++ : fn++; else flagged ? fp++ : tn++;
+    const ok = flagged === !!bad;
+    return `<tr><td>${esc(raw)}</td><td>${bad ? "Phishing" : "Legitimate"}</td><td>${score}</td><td class="${ok ? "safe" : "bad"}">${ok ? "Correct" : "Wrong"}</td></tr>`;
+  }).join("");
+  const pct = (a, b) => b ? Math.round(100 * a / b) + "%" : "n/a";
+  $("tests").innerHTML = `
+    <div class="stats">
+      <div><b>${pct(tp + tn, TESTS.length)}</b>Accuracy</div>
+      <div><b>${pct(tp, tp + fn)}</b>Phishing detected</div>
+      <div><b>${pct(fp, fp + tn)}</b>False positives</div>
+    </div>
+    <table><thead><tr><th>URL</th><th>Label</th><th>Score</th><th>Result</th></tr></thead><tbody>${rows}</tbody></table>
+    <p class="note">A URL counts as flagged at a score of 30 or more.</p>`;
+});
+</script>
+</body>
+</html>
