@@ -33,11 +33,43 @@ input:focus-visible,button:focus-visible{outline:3px solid var(--accent);outline
 .seg small{font:.7rem system-ui,sans-serif;color:var(--mute);margin-top:2px}
 .seg.domain code{border-color:var(--accent);font-weight:700;background:#e3f0f5}
 .seg.userinfo code{border-color:var(--bad)}
-ul.find{list-style:none;margin:0;padding:0}
-ul.find li{display:grid;grid-template-columns:3.2rem 1fr;gap:8px;padding:10px 0;border-top:1px solid var(--line)}
-ul.find li:first-child{border-top:0}
-ul.find b{font-variant-numeric:tabular-nums}
-ul.find .n{font-weight:600}
+ul.find {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+ul.find li {
+  display: grid;
+  grid-template-columns: 3.5rem 1fr;
+  gap: 12px;
+  padding: 14px 0;
+  border-top: 1px solid var(--line);
+}
+
+ul.find li:first-child {
+  border-top: 0;
+}
+
+ul.find b {
+  font-variant-numeric: tabular-nums;
+  font-size: .9rem;
+}
+
+ul.find .n {
+  font-weight: 650;
+  display: inline-block;
+  margin-bottom: 4px;
+}
+
+ul.find .cat {
+  display: inline-block;
+  margin-bottom: 5px;
+}
+
+ul.find li div {
+  line-height: 1.5;
+}
 .note{color:var(--mute);font-size:.875rem;margin:10px 0 0}
 table{width:100%;border-collapse:collapse;font-size:.85rem;margin-top:12px}
 th,td{text-align:left;padding:6px 8px;border-top:1px solid var(--line);vertical-align:top}
@@ -46,6 +78,56 @@ td:first-child{font-family:var(--mono);word-break:break-all}
 .stats div{font-size:.875rem;color:var(--mute)}.stats b{display:block;font-size:1.5rem;color:var(--ink)}
 dl.kv{display:grid;grid-template-columns:8rem 1fr;gap:6px 12px;margin:0;color:var(--ink)}dl.kv dt{color:var(--mute)}dl.kv dd{margin:0;font:.85rem var(--mono);word-break:break-all}
 .cat{font-size:.75rem;color:var(--mute);border:1px solid var(--line);border-radius:4px;padding:0 6px;margin-left:4px}
+
+/* Risk category breakdown */
+.risk-breakdown {
+  display: grid;
+  gap: 14px;
+  margin-top: 12px;
+}
+
+.risk-category {
+  display: grid;
+  gap: 6px;
+}
+
+.risk-category-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  font-size: .875rem;
+}
+
+.risk-category-header strong {
+  font-variant-numeric: tabular-nums;
+}
+
+.risk-bar {
+  height: 9px;
+  overflow: hidden;
+  background: var(--line);
+  border-radius: 6px;
+}
+
+.risk-bar-fill {
+  height: 100%;
+  border-radius: 6px;
+  background: var(--accent);
+  transition: width .4s ease;
+}
+
+.risk-category small {
+  color: var(--mute);
+  font-size: .8rem;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .risk-bar-fill {
+    transition: none;
+  }
+}
+
 footer{margin-top:28px;font-size:.875rem;color:var(--mute)}
 @media (prefers-reduced-motion:reduce){.meter i{transition:none}}
 </style>
@@ -311,17 +393,54 @@ async function fillAdvanced(c) {
 }
 
 /* Module 6: scoring */
+
 function computeVerdict(results) {
   const total = Math.max(0, Math.min(100, results.reduce((s, r) => s + r.score, 0)));
+
   const hits = results.filter(r => r.score > 0);
   const cats = {};
-  hits.forEach(r => { const k = CATS[r.name] || "Other"; cats[k] = (cats[k] || 0) + r.score; });
-  const top = Object.entries(cats).sort((a, b) => b[1] - a[1])[0];
+
+  hits.forEach(r => {
+    const k = CATS[r.name] || "Other";
+    cats[k] = (cats[k] || 0) + r.score;
+  });
+
+  const categories = Object.entries(cats)
+    .map(([name, points]) => ({ name, points }))
+    .sort((a, b) => b.points - a.points);
+
+  const trustAdjustment = results
+    .filter(r => r.score < 0)
+    .reduce((sum, r) => sum + r.score, 0);
+
+  const top = categories[0];
   const trusted = results.some(r => r.name === "Known domain" && r.score < 0);
-  const v = total >= 60 ? { cls: "bad", label: "Likely malicious" } : total >= 30 ? { cls: "warn", label: "Suspicious" } : { cls: "safe", label: "No red flags found" };
-  const conf = v.cls === "safe" ? (trusted ? "High" : "Moderate") : hits.length >= 3 ? "High" : hits.length === 2 ? "Medium" : "Low";
-  return { ...v, total, top: top && top[0], conf, signals: hits.length };
+
+  const v = total >= 60
+    ? { cls: "bad", label: "Likely malicious" }
+    : total >= 30
+      ? { cls: "warn", label: "Suspicious" }
+      : { cls: "safe", label: "No red flags found" };
+
+  const conf = v.cls === "safe"
+    ? (trusted ? "High" : "Moderate")
+    : hits.length >= 3
+      ? "High"
+      : hits.length === 2
+        ? "Medium"
+        : "Low";
+
+  return {
+    ...v,
+    total,
+    top: top && top.name,
+    conf,
+    signals: hits.length,
+    categories,
+    trustAdjustment
+  };
 }
+
 
 /* Module 7: interface */
 const $ = id => document.getElementById(id);
@@ -343,6 +462,36 @@ function render(c, results) {
   const v = computeVerdict(results);
   const found = results.filter(r => r.reason).sort((a, b) => b.score - a.score);
   const skipped = results.filter(r => r.skipped).map(r => r.name);
+  const positivePoints = results
+    .filter(r => r.score > 0)
+    .reduce((sum, r) => sum + r.score, 0);
+
+  const verdictExplanation = v.cls === "bad"
+    ? `This URL is classified as Likely malicious because its risk score (${v.total}) meets or exceeds the high-risk threshold of 60.`
+    : v.cls === "warn"
+      ? `This URL is classified as Suspicious because its risk score (${v.total}) falls between 30 and 59.`
+      : `No red flags were found because the final risk score (${v.total}) is below 30. However, this does not guarantee that the URL is safe.`;
+
+  const scoreExplanation = `The checks contributed ${positivePoints} positive points${v.trustAdjustment < 0 ? `, with ${Math.abs(v.trustAdjustment)} points deducted through negative adjustments` : ""}. The final score is restricted to a range of 0–100.`;
+
+  const skippedExplanation = skipped.length
+    ? `Some checks could not be completed: ${skipped.join(", ")}. Their results should not be interpreted as clean findings.`
+    : "No applicable checks were skipped during this scan.";
+  const maxCategoryPoints = Math.max(1, ...v.categories.map(category => category.points));
+
+  const categoryBreakdown = v.categories.length
+    ? v.categories.map(category => `
+        <div class="risk-category">
+          <div class="risk-category-header">
+            <span>${esc(category.name)}</span>
+            <strong>+${category.points} points</strong>
+          </div>
+          <div class="risk-bar">
+            <div class="risk-bar-fill" style="width:${(category.points / maxCategoryPoints) * 100}%"></div>
+          </div>
+        </div>
+      `).join("")
+    : `<p class="note">No positive risk contributions were detected.</p>`;
   const items = found.length
     ? found.map(r => `<li><b class="${r.score > 0 ? "bad" : "safe"}">${r.score > 0 ? "+" : "\u2212"}${Math.abs(r.score)}</b><div><span class="n">${esc(r.name)}</span> <span class="cat">${esc(CATS[r.name] || "")}</span><br>${esc(r.reason)}</div></li>`).join("")
     : `<li><b></b><div>Nothing unusual in the address. That does not guarantee the site is safe.</div></li>`;
@@ -352,6 +501,14 @@ function render(c, results) {
       <div class="meter" role="meter" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${v.total}" aria-label="Risk score"><i style="left:${v.total}%"></i></div>
       <div class="scale"><span>0</span><span>30</span><span>60</span><span>100</span></div>
       <p class="note">${v.top && v.cls !== "safe" ? `Main threat type: <b>${v.top}</b>. ` : ""}Confidence: <b>${v.conf}</b>${v.signals && v.cls !== "safe" ? ` (${v.signals} signal${v.signals > 1 ? "s" : ""} agree)` : ""}.</p>
+      <p class="note">${esc(verdictExplanation)}</p>
+      <p class="note">${esc(scoreExplanation)}</p>
+      <p class="note">${esc(skippedExplanation)}</p>
+    </section>
+        <section class="card">
+      <h2>Risk breakdown</h2>
+      <p class="note">Positive risk contributions by category, before adjustments and the 100-point cap.</p>
+      <div class="risk-breakdown">${categoryBreakdown}</div>
     </section>
     <section class="card"><h2>How the address is built</h2><div class="anat">${anatomy(c)}</div></section>
     <section class="card"><h2>Findings</h2><ul class="find">${items}</ul>
