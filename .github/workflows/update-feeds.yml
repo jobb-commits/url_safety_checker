@@ -1,0 +1,44 @@
+
+name: Update OpenPhish Threat Feed
+
+on:
+  schedule:
+    # Every day at 03:17 UTC (06:17 East Africa Time)
+    - cron: '17 3 * * *'
+
+  # Allow manual execution from GitHub
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  update-feed:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Download and update OpenPhish feed
+        run: node update-feeds.js
+
+      - name: Create pull request for feed updates
+        uses: peter-evans/create-pull-request@v7
+        with:
+          token: ${{ github.token }}
+          commit-message: "chore: update OpenPhish feed"
+          branch: automation/update-openphish-feed
+          delete-branch: true
+          title: "chore: update OpenPhish threat feed"
+          body: |
+            Automated update of the OpenPhish community threat feed.
+
+            This pull request contains refreshed phishing domain intelligence.
+          add-paths: feeds.js
